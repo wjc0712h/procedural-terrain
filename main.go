@@ -1,11 +1,6 @@
 package main
 
-import (
-	"fmt"
-)
-
 func main() {
-	fmt.Println("Hello World")
-	// pkg.Create_2D_Window()
-	//pkg.Run_3D()
+	Run_2D_Terrain()
+	//three_d.Run_3D_Terrain()
 }

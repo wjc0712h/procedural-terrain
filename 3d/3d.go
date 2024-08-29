@@ -1,4 +1,4 @@
-package pkg
+package three_d
 
 import (
 	"fmt"
@@ -19,8 +19,10 @@ import (
 	"github.com/g3n/engine/window"
 )
 
-func Run_3D() {
-
+func Print_3D() {
+	fmt.Println("pkg 3d")
+}
+func Run_3D_Terrain() {
 	// Create application and scene
 	a := app.App()
 	scene := core.NewNode()
@@ -79,7 +81,4 @@ func Run_3D() {
 		a.Gls().Clear(gls.DEPTH_BUFFER_BIT | gls.STENCIL_BUFFER_BIT | gls.COLOR_BUFFER_BIT)
 		renderer.Render(scene, cam)
 	})
-}
-func Print_3d() {
-	fmt.Println("3D")
 }
