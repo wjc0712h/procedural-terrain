@@ -14,7 +14,7 @@ import (
 type TerrainType struct {
 	Name   string
 	Height float64
-	Colour color.RGBA
+	Color  color.RGBA
 }
 
 type MapGenerator struct {
@@ -23,7 +23,7 @@ type MapGenerator struct {
 
 	NoiseScale  float64
 	Octaves     int
-	Persistance float64
+	Persistence float64
 	Lacunarity  float64
 	Offset      pixel.Vec
 
@@ -68,7 +68,7 @@ func (mg *MapGenerator) GenerateNoiseMap() {
 			amplitude := 1.0
 			frequency := 1.0
 			noiseHeight := 0.0
-			//각 옥타브는 최종 노이즈 높이에 기여, 진폭과 주파수에 의해 조정됨. 이 값들은 옥타브에 따라 Persistance와 Lacunarity에 따라 달라짐.
+			//각 옥타브는 최종 노이즈 높이에 기여, 진폭과 주파수에 의해 조정됨. 이 값들은 옥타브에 따라 Persistence와 Lacunarity에 따라 달라짐.
 			for i := 0; i < mg.Octaves; i++ {
 				sampleX := (float64(x)-halfWidth)/mg.NoiseScale*frequency + octaveOffsets[i].X
 				sampleY := (float64(y)-halfHeight)/mg.NoiseScale*frequency + octaveOffsets[i].Y
@@ -76,7 +76,7 @@ func (mg *MapGenerator) GenerateNoiseMap() {
 				perlinValue := noise.Eval2(sampleX, sampleY)*2.0 - 1.0
 				noiseHeight += perlinValue * amplitude
 
-				amplitude *= mg.Persistance
+				amplitude *= mg.Persistence
 				frequency *= mg.Lacunarity
 			}
 
@@ -139,7 +139,7 @@ func (mg *MapGenerator) GenerateNoiseMap_island() {
 				perlinValue := noise.Eval2(sampleX, sampleY)*2.0 - 1.0
 				noiseHeight += perlinValue * amplitude
 
-				amplitude *= mg.Persistance
+				amplitude *= mg.Persistence
 				frequency *= mg.Lacunarity
 			}
 
@@ -174,7 +174,7 @@ func (mg *MapGenerator) DrawNoiseMap(win *pixelgl.Window) {
 			var col color.RGBA
 			for _, region := range mg.Regions {
 				if noiseValue <= region.Height {
-					col = region.Colour
+					col = region.Color
 					break
 				}
 			}
@@ -205,7 +205,7 @@ func run() {
 		MapHeight:   500,
 		NoiseScale:  300,
 		Octaves:     5,
-		Persistance: 0.5,
+		Persistence: 0.5,
 		Lacunarity:  2.0,
 		Seed:        0, //uint64(time.Now().UnixNano())
 		Offset:      pixel.V(0, 0),
