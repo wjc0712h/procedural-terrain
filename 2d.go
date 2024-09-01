@@ -18,33 +18,33 @@ type TerrainType struct {
 }
 
 type MapGenerator struct {
-	MapWidth   int
-	MapHeight  int
-	NoiseScale float64
+	MapWidth  int
+	MapHeight int
 
+	NoiseScale  float64
 	Octaves     int
 	Persistance float64
 	Lacunarity  float64
+	Offset      pixel.Vec
 
-	Seed   uint64
-	Offset pixel.Vec
-
+	Seed       uint64
 	AutoUpdate bool
 	Regions    []TerrainType
-
-	NoiseMap [][]float64
+	NoiseMap   [][]float64
 }
 
 func (mg *MapGenerator) GenerateNoiseMap() {
+	// 노이즈맵 초기화
 	mg.NoiseMap = make([][]float64, mg.MapWidth)
 	for i := range mg.NoiseMap {
 		mg.NoiseMap[i] = make([]float64, mg.MapHeight)
 	}
-
+	// NoiseScale 초기값 0 방지
 	if mg.NoiseScale <= 0 {
 		mg.NoiseScale = 0.0001
 	}
 
+	// opensimplex 이용해서 노이즈 생성
 	seed := uint64(time.Now().UnixNano())
 	prng := rand.New(rand.NewSource(seed))
 	noise := opensimplex.New(int64(rand.Uint64()))
@@ -62,12 +62,13 @@ func (mg *MapGenerator) GenerateNoiseMap() {
 	halfWidth := float64(mg.MapWidth) / 2.0
 	halfHeight := float64(mg.MapHeight) / 2.0
 
+	//각각의 좌표를 순회하며 높이 계산.
 	for y := 0; y < mg.MapHeight; y++ {
 		for x := 0; x < mg.MapWidth; x++ {
 			amplitude := 1.0
 			frequency := 1.0
 			noiseHeight := 0.0
-
+			//각 옥타브는 최종 노이즈 높이에 기여, 진폭과 주파수에 의해 조정됨. 이 값들은 옥타브에 따라 Persistance와 Lacunarity에 따라 달라짐.
 			for i := 0; i < mg.Octaves; i++ {
 				sampleX := (float64(x)-halfWidth)/mg.NoiseScale*frequency + octaveOffsets[i].X
 				sampleY := (float64(y)-halfHeight)/mg.NoiseScale*frequency + octaveOffsets[i].Y
@@ -88,7 +89,7 @@ func (mg *MapGenerator) GenerateNoiseMap() {
 			mg.NoiseMap[x][y] = noiseHeight
 		}
 	}
-
+	//Normalization 0 ~ 1
 	for y := 0; y < mg.MapHeight; y++ {
 		for x := 0; x < mg.MapWidth; x++ {
 			mg.NoiseMap[x][y] = (mg.NoiseMap[x][y] - minNoiseHeight) / (maxNoiseHeight - minNoiseHeight)
@@ -120,6 +121,7 @@ func (mg *MapGenerator) GenerateNoiseMap_island() {
 	maxNoiseHeight := math.Inf(-1)
 	minNoiseHeight := math.Inf(1)
 
+	//중앙 좌표와 최대 거리 계산
 	halfWidth := float64(mg.MapWidth) / 2.0
 	halfHeight := float64(mg.MapHeight) / 2.0
 	maxDistance := math.Sqrt(halfWidth*halfWidth + halfHeight*halfHeight)
@@ -142,7 +144,7 @@ func (mg *MapGenerator) GenerateNoiseMap_island() {
 			}
 
 			distance := math.Sqrt(math.Pow(float64(x)-halfWidth, 2) + math.Pow(float64(y)-halfHeight, 2))
-			gradient := 1.0 - (distance / maxDistance)
+			gradient := 1.0 - (distance / maxDistance) /* 그래디언트 계산. 중앙이 높고 멀어질수록 낮아짐 */
 			noiseHeight *= gradient
 
 			if noiseHeight > maxNoiseHeight {
@@ -162,24 +164,18 @@ func (mg *MapGenerator) GenerateNoiseMap_island() {
 	}
 }
 
-func (mg *MapGenerator) DrawNoiseMap(win *pixelgl.Window, drawMode string) {
+/* 화면 출력 담당 함수 */
+func (mg *MapGenerator) DrawNoiseMap(win *pixelgl.Window) {
 	pic := pixel.MakePictureData(pixel.R(0, 0, float64(mg.MapWidth), float64(mg.MapHeight)))
 
 	for y := 0; y < mg.MapHeight; y++ {
 		for x := 0; x < mg.MapWidth; x++ {
 			noiseValue := mg.NoiseMap[x][y]
 			var col color.RGBA
-
-			switch drawMode {
-			case "NoiseMap":
-				gray := uint8(math.Floor(noiseValue * 255))
-				col = color.RGBA{R: gray, G: gray, B: gray, A: 255}
-			case "ColourMap":
-				for _, region := range mg.Regions {
-					if noiseValue <= region.Height {
-						col = region.Colour
-						break
-					}
+			for _, region := range mg.Regions {
+				if noiseValue <= region.Height {
+					col = region.Colour
+					break
 				}
 			}
 
@@ -236,7 +232,7 @@ func run() {
 			//mapGen.GenerateNoiseMap()
 
 		}
-		mapGen.DrawNoiseMap(win, "ColourMap")
+		mapGen.DrawNoiseMap(win)
 		win.Update()
 		time.Sleep(time.Millisecond * 1000)
 	}
