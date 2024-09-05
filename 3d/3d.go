@@ -15,6 +15,7 @@ import (
 	"github.com/g3n/engine/material"
 	"github.com/g3n/engine/math32"
 	"github.com/g3n/engine/renderer"
+	"github.com/g3n/engine/util/helper"
 	"github.com/g3n/engine/window"
 	"github.com/ojrac/opensimplex-go"
 	"golang.org/x/exp/rand"
@@ -32,7 +33,7 @@ type TerrainType struct {
 	Color  color.RGBA
 }
 
-type mapGenerator struct {
+type MapGenerator struct {
 	MapWidth  int
 	MapHeight int
 
@@ -47,7 +48,7 @@ type mapGenerator struct {
 	Seed      uint64
 }
 
-func (mg *mapGenerator) GenerateHeightMap() {
+func (mg *MapGenerator) GenerateHeightMap() {
 	mg.HeightMap = make([][]float64, mapWidth)
 	for i := range mg.HeightMap {
 		mg.HeightMap[i] = make([]float64, mapHeight)
@@ -63,8 +64,8 @@ func (mg *mapGenerator) GenerateHeightMap() {
 
 	octaveOffsets := make([]math32.Vector2, mg.Octaves)
 	for i := 0; i < mg.Octaves; i++ {
-		offsetX := float64(prng.Intn(200000)-100000) + float64(mg.Offset.X)
-		offsetY := float64(prng.Intn(200000)-100000) + float64(mg.Offset.Y)
+		offsetX := float64(mg.Offset.X)
+		offsetY := float64(mg.Offset.Y)
 		octaveOffsets[i] = math32.Vector2{X: float32(offsetX), Y: float32(offsetY)}
 	}
 
@@ -107,11 +108,131 @@ func (mg *mapGenerator) GenerateHeightMap() {
 		}
 	}
 }
+func (mg *MapGenerator) GenerateHeightMap_island() {
+	mg.HeightMap = make([][]float64, mapWidth)
+	for i := range mg.HeightMap {
+		mg.HeightMap[i] = make([]float64, mapHeight)
+	}
 
-func GenerateMesh() *graphic.Mesh {
-	geom := geometry.NewBox(1, 1, 1)
+	if mg.NoiseScale <= 0 {
+		mg.NoiseScale = 0.0001
+	}
+
+	seed := uint64(time.Now().UnixNano())
+	prng := rand.New(rand.NewSource(seed))
+	noise := opensimplex.New(int64(prng.Uint64()))
+
+	octaveOffsets := make([]math32.Vector2, mg.Octaves)
+	for i := 0; i < mg.Octaves; i++ {
+		offsetX := float64(mg.Offset.X)
+		offsetY := float64(mg.Offset.Y)
+		octaveOffsets[i] = math32.Vector2{X: float32(offsetX), Y: float32(offsetY)}
+	}
+
+	maxNoiseHeight := math.Inf(-1)
+	minNoiseHeight := math.Inf(1)
+
+	halfWidth := float64(mapWidth) / 2.0
+	halfHeight := float64(mapHeight) / 2.0
+
+	for y := 0; y < mapHeight; y++ {
+		for x := 0; x < mapWidth; x++ {
+			amplitude := 1.0
+			frequency := 1.0
+			noiseHeight := 0.0
+
+			for i := 0; i < mg.Octaves; i++ {
+				sampleX := (float64(x)-halfWidth)/mg.NoiseScale*frequency + float64(octaveOffsets[i].X)
+				sampleY := (float64(y)-halfHeight)/mg.NoiseScale*frequency + float64(octaveOffsets[i].Y)
+
+				perlinValue := noise.Eval2(sampleX, sampleY)*2.0 - 1.0
+				noiseHeight += perlinValue * amplitude
+
+				amplitude *= mg.Persistence
+				frequency *= mg.Lacunarity
+			}
+
+			distanceFromCenter := math.Sqrt(math.Pow(float64(x)-halfWidth, 2) + math.Pow(float64(y)-halfHeight, 2))
+			gradient := 1 - (distanceFromCenter / math.Max(halfWidth, halfHeight))
+			gradient = math.Max(gradient, 0)
+
+			noiseHeight *= gradient
+
+			if noiseHeight > maxNoiseHeight {
+				maxNoiseHeight = noiseHeight
+			}
+			if noiseHeight < minNoiseHeight {
+				minNoiseHeight = noiseHeight
+			}
+			mg.HeightMap[x][y] = -1 * noiseHeight
+		}
+	}
+
+	for y := 0; y < mapHeight; y++ {
+		for x := 0; x < mapWidth; x++ {
+			mg.HeightMap[x][y] = (mg.HeightMap[x][y] - minNoiseHeight) / (maxNoiseHeight - minNoiseHeight)
+		}
+	}
+}
+
+func GenerateTerrainMesh(mg *MapGenerator) *graphic.Mesh {
+
+	geom := geometry.NewGeometry()
+
+	vertices := math32.NewArrayF32(0, 3*mg.MapWidth*mg.MapHeight)
+	indices := math32.NewArrayU32(0, 6*(mg.MapWidth-1)*(mg.MapHeight-1))
+	colors := math32.NewArrayF32(0, 3*mg.MapWidth*mg.MapHeight)
+
+	for y := 0; y < mg.MapHeight; y++ {
+		for x := 0; x < mg.MapWidth; x++ {
+
+			height := mg.HeightMap[x][y]
+			posX := float32(x)
+			posY := float32(height * 100) // 높이 스케일
+			posZ := float32(y)
+
+			vertices.Append(posX, posY, posZ)
+
+			var color math32.Color
+			// with:
+			for _, region := range mg.Regions {
+				if height <= region.Height {
+					color = math32.Color{
+						R: float32(region.Color.R) / 255,
+						G: float32(region.Color.G) / 255,
+						B: float32(region.Color.B) / 255,
+					}
+					break
+				}
+			}
+			colors.Append(color.R, color.G, color.B)
+		}
+	}
+
+	for y := 0; y < mg.MapHeight-1; y++ {
+		for x := 0; x < mg.MapWidth-1; x++ {
+			topLeft := uint32(y*mg.MapWidth + x)
+			topRight := topLeft + 1
+			bottomLeft := topLeft + uint32(mg.MapWidth)
+			bottomRight := bottomLeft + 1
+
+			indices.Append(topLeft, bottomLeft, topRight)
+			indices.Append(topRight, bottomLeft, bottomRight)
+		}
+	}
 	mat := material.NewStandard(math32.NewColor("DarkBlue"))
-	return graphic.NewMesh(geom, mat)
+	mat.SetShininess(30.0) // Increase shininess for specular highlights
+
+	normals := math32.NewArrayF32(len(vertices), cap(vertices))
+	normals = geometry.CalculateNormals(indices, vertices, normals)
+
+	geom.SetIndices(indices)
+	geom.AddVBO(gls.NewVBO(vertices).AddAttrib(gls.VertexPosition))
+	//geom.AddVBO(gls.NewVBO(colors).AddAttrib(gls.VertexColor))
+	geom.AddVBO(gls.NewVBO(normals).AddAttrib(gls.VertexNormal))
+
+	mesh := graphic.NewMesh(geom, mat)
+	return mesh
 }
 
 func Run_3D_Terrain() {
@@ -120,28 +241,15 @@ func Run_3D_Terrain() {
 	a.IWindow.(*window.GlfwWindow).SetTitle(title)
 	a.IWindow.(*window.GlfwWindow).SetSize(800, 800)
 	scene := core.NewNode()
-
-	// 카메라 설정
-	cam := camera.New(1)
-	cam.SetPosition(0, 0, 3)
-	scene.Add(cam)
-	camera.NewOrbitControl(cam)
-
-	//scene.Add(helper.NewAxes(0.5)) //display axis
-
-	//빛 설정
-	scene.Add(light.NewAmbient(&math32.Color{R: 1.0, G: 1.0, B: 1.0}, 0.8))
-	pointLight := light.NewPoint(&math32.Color{R: 1, G: 1, B: 1}, 5.0)
-	pointLight.SetPosition(1, 0, 2)
-	scene.Add(pointLight)
+	scene.Add(helper.NewAxes(1000)) //display axis
 
 	//백그라운드 색
 	a.Gls().ClearColor(0.5, 0.5, 0.5, 1.0)
 
-	mg := &mapGenerator{
+	mg := &MapGenerator{
 		MapWidth:    500,
 		MapHeight:   500,
-		NoiseScale:  300,
+		NoiseScale:  100,
 		Octaves:     5,
 		Persistence: 0.5,
 		Lacunarity:  2.0,
@@ -161,14 +269,24 @@ func Run_3D_Terrain() {
 			{"Water", 1.0, color.RGBA{R: 56, G: 103, B: 175, A: 255}},
 		},
 	}
-	mg.GenerateHeightMap()
-	//mg.generateTerrainMap_island()
-	md := GenerateMesh()
-	geom := geometry.NewTorus(1, .4, 12, 32, math32.Pi*2)
-	mat := material.NewStandard(math32.NewColor("DarkBlue"))
-	mesh := graphic.NewMesh(geom, mat)
-	scene.Add(mesh)
-	scene.Add(md)
+	//mg.GenerateHeightMap()
+	mg.GenerateHeightMap_island()
+	terrainMesh := GenerateTerrainMesh(mg)
+	scene.Add(terrainMesh)
+
+	//빛 설정
+	scene.Add(light.NewAmbient(&math32.Color{R: 1.0, G: 1.0, B: 1.0}, 1))
+	pointLight := light.NewDirectional(&math32.Color{R: 255, G: 255, B: 255}, 100.0)
+	pointLight.SetPosition(float32(mg.MapWidth)/2, 400, float32(mg.MapHeight)/2)
+	scene.Add(pointLight)
+
+	// 카메라 설정
+	cam := camera.New(1)
+	cam.SetFar(3000)
+	cam.SetPosition(600, 400, 600)
+	cam.LookAt(&math32.Vector3{X: float32(mg.MapWidth) / 2, Y: 50, Z: float32(mg.MapHeight) / 2}, &math32.Vector3{X: 0, Y: 1, Z: 0})
+	camera.NewOrbitControl(cam).SetTarget(math32.Vector3{X: float32(mg.MapWidth) / 2, Y: 50, Z: float32(mg.MapHeight) / 2})
+	scene.Add(cam)
 
 	a.Run(func(renderer *renderer.Renderer, deltaTime time.Duration) {
 		a.Gls().Clear(gls.DEPTH_BUFFER_BIT | gls.STENCIL_BUFFER_BIT | gls.COLOR_BUFFER_BIT)
